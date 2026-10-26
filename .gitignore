@@ -1,0 +1,12 @@
+# Identifiants Smile : jamais versionnés
+.env
+
+# Extraits Smile, fichiers d'import et rapports : données personnelles et bancaires
+data/
+*.csv
+*.xlsx
+!docs/**/*.xlsx
+!tests/fixtures/*.csv
+
+__pycache__/
+.DS_Store
