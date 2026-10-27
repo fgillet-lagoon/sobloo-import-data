@@ -1,0 +1,9 @@
+{
+  "name": "sobloo-import-outils",
+  "private": true,
+  "description": "Génération du point d'avancement (PPTX) et du classeur des anomalies Smile (XLSX)",
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "pptxgenjs": "3.12.0"
+  }
+}
