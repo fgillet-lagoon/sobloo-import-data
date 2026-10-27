@@ -2,17 +2,32 @@
 
 Brouillon du 27/10/2026, construit à partir de la structure de `lagoon.nc` (vues `smile03`, champs personnalisés), de l'inventaire, des taux de remplissage (`sql/remplissage_clients.sql`) et du profil des formats (`sql/profil_clients.sql`). À valider par Lagoon, puis à reporter dans les colonnes jaunes du fichier de cadrage.
 
-Population : `smile03.account`, soit 57 600 comptes (statut `D` exclu par la vue). Pros (Entreprise, Administration, Association, Grand compte, Revendeur) : 5 847. Les 78 comptes « Compte Smile » sont probablement internes : à exclure ? (cas 5).
+Population : **26 264 clients à reprendre**, c'est-à-dire les clients ayant au moins un abonnement à reprendre (`sql/perimetre.sql`). Ce sont 23 364 particuliers, 2 832 pros, 65 « Compte Smile » (internes ? à exclure, cas 5) et 3 « Contentieux ». Smile compte 57 600 comptes au total : les taux de remplissage ci-dessous portent sur ces 57 600 comptes.
 **Hors périmètre : RIB et mandats SEPA (n° 57 à 65, 78, 84, 85)**. Ils sont déjà gérés dans So'Bloo depuis l'import SEPA (décision Lagoon du 27/10/2026). Dans Smile, la vue masque d'ailleurs le numéro de RIB (`card_number` = `****************`).
 Abonnements Self Care (CAT) : non repris comme abonnements (accès au portail, décision du 27/10/2026). Leurs champs utiles sont rattachés au client.
 « Rempli » = valeur non vide. Pour un champ personnalisé booléen, une valeur « false » compte comme remplie : la répartition des valeurs reste à vérifier.
+
+## Volumes sur les clients à reprendre (`sql/clients_a_reprendre.sql`, 27/10/2026)
+
+Les taux des tableaux ci-dessous portent sur les 57 600 comptes Smile. **Sur les 26 264 clients à reprendre**, les volumes sont les suivants :
+
+| Mesure | Clients à reprendre |
+|---|---|
+| E-mail renseigné / au format invalide | 25 931 (98,7 %) / **2** |
+| Procuration renseignée (contacts à créer) | **14 437** |
+| Date de naissance / lieu de naissance | 7 673 / 6 560 |
+| N° Conso+ renseigné / en double | 6 643 / **50** (lignes bloquées : champ unique) |
+| RIDET renseigné (2 832 pros) / au mauvais format (≠ `1234567.001`) | 2 828 / **2 165** (à corriger dans Smile) |
+| Adresses de type 0 et 1 différentes | 1 464 |
+| Téléphones à 12 chiffres (mobile / fixe) / autres longueurs anormales | 301 / 67 / 19 |
+| Accès limité / revendeur | 51 / 10 |
 
 ## Identité
 
 | N° | Champ So'Bloo | Source Smile | Rempli | Règle proposée | Statut |
 |---|---|---|---|---|---|
-| 1 | `customer.ref` | `account.usn` | 100 % | Tel quel. 0 manquant, 0 doublon | Proposé |
-| 2 | `customer.person_type` | `account.account_type` | 100 % | Particulier → Particulier ; Entreprise, Administration, Association, Grand compte, Revendeur L@goon → Société ; Contentieux → Société si raison sociale renseignée, sinon Particulier | À valider (cas 4) |
+| 1 | `customer.ref` | `account.usn` | 100 % | Tel quel. 0 manquant, 0 doublon | Validé (27/10) |
+| 2 | `customer.person_type` | `account.account_type` | 100 % | Particulier → Particulier ; Entreprise, Administration, Association, Grand compte, Revendeur L@goon → Société ; Contentieux → **pas un type client** (décision du 27/10 : c'est un statut de recouvrement), donc Société si raison sociale renseignée, sinon Particulier | À valider (cas 4) |
 | 3 | `customer.title` | `account_contact.contact_title` ; `gender` | 9 ; 1 509 | Trop peu rempli : non repris, ou civilité déduite du genre (2,6 %) | À valider |
 | 4 | `customer.last_name` | `account_contact.family_name` | 52 236 (89 %) | Obligatoire si particulier : les particuliers sans nom seront rejetés | Proposé |
 | 5 | `customer.first_name` | `account_contact.given_name` | 50 984 (87 %) | Obligatoire si particulier | Proposé |
@@ -32,7 +47,7 @@ Abonnements Self Care (CAT) : non repris comme abonnements (accès au portail, d
 | 66-67 | Notes client | champ perso `comments` | 19 134 | Une note par client | À valider |
 | — | Ancien numéro de compte | `account.alternate_account_number` | 19 742 (34 %) | À reprendre en propriété dynamique (recherche par ancien numéro) ? | À valider |
 | — | Commercial | champ perso `Commercial` | 4 070 | Propriété dynamique ? | À valider |
-| 35, 43 | Contact avec procuration | champ perso `Procuration_` (nom de la personne) | 30 576 | **À migrer** (décision Lagoon du 27/10/2026) : un contact par client avec `contact.is_proxy` = Oui, nom = valeur Smile. **Conflit** : So'Bloo exige la date et le lieu de naissance du mandataire (n° 45-46), absents de Smile. À trancher avec Sobloo. Vérifier aussi que les 30 576 valeurs ne sont pas un texte par défaut (« aucune »…) | Ouvert |
+| 35, 43 | Contact avec procuration | champ perso `Procuration_` (nom de la personne) | 30 576 sur tous les comptes ; à recalculer sur les clients repris | **À migrer pour les seuls clients repris** (décision Lagoon du 27/10/2026) : un contact par client avec `contact.is_proxy` = Oui, nom = valeur Smile. **Conflit** : So'Bloo exige la date et le lieu de naissance du mandataire (n° 45-46), absents de Smile. À trancher avec Sobloo. Vérifier aussi que les 30 576 valeurs ne sont pas un texte par défaut (« aucune »…) | Ouvert |
 
 ## Coordonnées
 
@@ -57,7 +72,7 @@ Abonnements Self Care (CAT) : non repris comme abonnements (accès au portail, d
 |---|---|---|---|---|---|
 | 23 | `customer_states.blocking_date` | disposition « En retard - Coupure » | 1 | Date à définir (date de bascule ou dernier changement, `account_audit_log`) | Ouvert |
 | 24 | `customer_states.suspension_date` | statut de compte Suspended | 3 | Idem | Ouvert |
-| 25 | `customer_states.litigation_date` | disposition « Contentieux » / « En retard - Contentieux » ; type Contentieux ; conditions « Contentieux (no email) » | 954 ; 1 122 ; 838 | Une seule règle : quelle source fait foi ? | Ouvert |
+| 25 | `customer_states.litigation_date` | **disposition** « Contentieux » (838) / « En retard - Contentieux » (116) | 954 | **La disposition fait foi** (décision Lagoon du 27/10 : statut de recouvrement). Le type de compte Contentieux (1 122) n'est pas utilisé. Les comptes en contentieux ayant un abonnement actif sont repris. **Anomalie probable** : un compte en contentieux ne devrait pas avoir d'abonnement actif. Mesure du 27/10 (`sql/contentieux.sql`) : **92 comptes** sur 949 en ont, soit 89 « En retard - Contentieux » et 3 « Contentieux », pour **435 abonnements** (309 Active, 126 Suspended ; Internet 179, location modem/box 98, VOIP 61…). À vérifier dans Smile. **Point à trancher** : quelle date reprendre ? La disposition Smile n'est pas datée (date de bascule, ou dernier changement dans `account_audit_log`) | Validé (source), date ouverte |
 | 87 | Accès limité (à créer) | champ perso `limited_access` de l'abonnement **Self Care** | 54 « true », 2 « false » | Oui pour les 54 clients concernés, Non sinon | Proposé |
 | — | Revendeur | champ perso `retailerAccount` de l'abonnement **Self Care** | 20 « true », 1 995 « false » | Groupe Revendeur pour les 20 « true ». Cohérent avec les 18 comptes de type Revendeur L@goon : les 2 écarts sont à vérifier | Proposé |
 | 88 | Client Chorus (à créer) | — | — | Aucun champ | Ouvert |
@@ -77,7 +92,7 @@ Les relances (Relance 1 : 1 962 ; Relance 2 : 21) n'ont pas d'équivalent : il n
 | 57-65, 78 | RIB, mandat SEPA, prélèvement automatique | — | — | **Hors périmètre** : déjà dans So'Bloo (import SEPA). Ne pas écraser à l'import clients | Validé |
 | — | Adresse de la banque | champs perso `bank*` (agence, ville, BP, code postal…) | 4 000 à 25 000 | Pas de champ So'Bloo : non repris | Non repris |
 | 82 | Devise | `account.currency` | 100 % | XPF | Proposé |
-| 77 | Organisation du profil | — | — | Lagoon / Lagoon Business : à trancher | Ouvert |
+| 77 | Organisation du profil | — | — | Lagoon seule (décision du 27/10) | Validé |
 
 ## Non repris
 

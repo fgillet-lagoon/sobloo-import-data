@@ -32,11 +32,11 @@ Un lot ne démarre que lorsque le précédent est validé par Lagoon **et** Sobl
 | Lot | Onglet(s) cadrage | Clé de rapprochement | Remarques |
 |---|---|---|---|
 | 1 | `1-Comptes comptables`, `1b-Familles articles` | code du compte ; code famille | Import comptes à développer côté Sobloo. Les familles portent taxes et comptes de vente par défaut |
-| 2 | `2-Clients` | `customer.ref` = **référence Smile (accountUsn)** | Particuliers et professionnels |
+| 2 | `2-Clients` | `customer.ref` = **`usn` du compte Smile** (accountUsn) | Particuliers et professionnels |
 | 3 | `3-Options articles` | `variant.code` | Une option = un article rattaché via un groupe d'options |
 | 4 | `4-Articles` | `variant.code` | Frais fixes inclus ; liens vers options |
 | 5 | `5-Réductions` | à définir (`discount.code` le transforme en code promo) | Absentes des données actuelles : fichier à fournir par Lagoon |
-| 6 | `6-Abonnements`, `6a-Abo Internet`, `6b-Abo VOIP` | `subscription_contract.ref` = ID contrat Smile | En cours uniquement, sans historique de factures |
+| 6 | `6-Abonnements`, `6a-Abo Internet`, `6b-Abo VOIP` | **`usn` de l'abonnement Smile** (décision Lagoon du 27/10/2026 ; les contrats d'abonnement ne sont pas utilisés dans Smile) | En cours uniquement, sans historique de factures |
 
 Onglet `Cas limites` : 27 questions à trancher (sources, doublons, suspendus, bascule…). Une réponse Lagoon doit y aboutir à une « Règle d'import retenue ».
 
@@ -49,6 +49,7 @@ Onglet `Cas limites` : 27 questions à trancher (sources, doublons, suspendus, b
 - **Transmission** : dépôt direct dans So'Bloo via le modèle d'import générique. Pas de Drive partagé. Ne jamais pousser de données clients vers un service externe.
 - **Format** : CSV ou XLSX avec validations, **non tranché** (porteur Sobloo). Ne pas figer le format dans le code sans confirmation.
 - Comptabilité : tous les types de clients sont en **compte client débit** (profil de paiement « Débit »).
+- Organisation So'Bloo : **Lagoon seule** (décision Lagoon du 27/10/2026, pas de Lagoon Business pour la reprise).
 
 ## Pièges techniques relevés dans le cadrage
 
@@ -107,7 +108,6 @@ Critères de sortie d'un lot :
 | Pas de workflow de recouvrement ; statuts clients à reprendre | Lagoon |
 | Abonnements en cours seulement, sans historique de factures | Lagoon |
 | Fichier des réductions | Lagoon |
-| Organisation(s) : Lagoon / Lagoon Business | à préciser |
 
 ## Conventions de travail
 

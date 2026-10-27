@@ -40,24 +40,31 @@ Cartographie de Smile faite depuis pgAdmin (structure et comptages uniquement) :
 
 **Ce qui est établi**
 - **Smile = Inomial Smile sur PostgreSQL**, base `lagoon.nc` (serveur SMILE01 - PROD). Les anciens serveurs DB1 et DB2 sont injoignables : il s'agit probablement d'instances arrêtées. **Une seule base à extraire**, à confirmer par l'admin (cas 1).
-- **Accès** : en attente d'une ouverture `pg_hba.conf` et d'un compte en lecture seule (demande envoyée). En attendant, les requêtes passent par pgAdmin, avec export CSV vers `data/cartographie/`.
+- **Accès direct opérationnel** depuis le poste Lagoon (27/10/2026), par `psql` sur une **réplique** (`pg_is_in_recovery() = t`), en lecture seule et avec coupure à 5 minutes. Les résultats agrégés sont écrits dans `data/cartographie/`.
 - **Source d'extraction** : les vues de reporting `smile03`, sauf pour le plan en cours d'un abonnement, lu dans `public.planscheduleitem` (type 1 « Accounting plan schedule »). Le filtre de date de la vue coûte trop cher sur la PROD.
-- **Volumes** : 57 600 clients (`usn` unique et toujours renseigné) ; environ 50 400 abonnements en cours hors Self Care ; environ 68 articles commerciaux et 144 options réellement utilisés (sur 252 plans et 736 options).
+- **Volumes** (`sql/perimetre.sql`) :
+  - **26 264 clients à reprendre** sur 57 600 comptes Smile : ce sont les clients ayant au moins un abonnement à reprendre. `usn` est unique et toujours renseigné.
+  - **50 371 abonnements à reprendre** : Active ou Suspended, hors Self Care et hors plan `inactive`.
+  - Environ 68 articles commerciaux réellement utilisés sur 252 plans. Sur 736 options, 144 sont utilisées : 20 réductions (lot 5) et 124 autres, qui mélangent vraies options, choix de frais de mise en service et choix par défaut. Le tri est à faire par Lagoon.
 
 **Décisions Lagoon du 27/10/2026**
 - **RIB et mandats SEPA hors périmètre** : ils sont déjà gérés dans So'Bloo. L'import clients ne doit pas les écraser.
 - **Self Care (CAT)** : accès au portail client, ces abonnements ne sont pas repris. Leurs indicateurs (accès limité, revendeur) passent sur le client.
 - **Plans `active`, `locked`, `closed`, `inactive`, `freesusp`** : ce sont des états techniques. Ils ne sont pas repris comme articles et servent à déduire l'état de l'abonnement.
-- **Procuration** (champ `Procuration_`, 30 576 comptes) : à migrer comme contact avec procuration.
+- **Organisation So'Bloo : Lagoon seule** (pas de Lagoon Business).
+- **Procuration** (champ `Procuration_`) : à migrer comme contact avec procuration, **pour les seuls clients repris**, soit 14 437 contacts (`sql/clients_a_reprendre.sql`).
+- **Contentieux = statut de recouvrement** : la disposition du compte Smile fait foi (949 comptes, dont 92 ayant 435 abonnements à reprendre), pas le type de compte « Contentieux ». Les comptes en contentieux ayant un abonnement actif sont repris, mais signalés : un compte en contentieux ne devrait pas en avoir (`sql/contentieux.sql`). La date de contentieux à reprendre reste à trancher.
 
 **Conséquences sur le plan**
-- La **clé du lot 6 est l'`usn` de l'abonnement** : les contrats d'abonnement Smile ne sont pas utilisés (0 en cours).
-- **Le lot 5 est quasi vide** : les réductions Smile ne sont pas utilisées (4 définies, aucune rattachée). Restent à examiner les 61 frais récurrents hors plan.
+- **Clés de rapprochement Smile ↔ So'Bloo (décision Lagoon du 27/10/2026)** : `usn` du compte pour les clients (`customer.ref`), `usn` de l'abonnement pour les abonnements. Les contrats d'abonnement Smile ne sont pas utilisés (0 en cours).
+- **Les réductions sont des « charging options »** (précision Lagoon du 27/10/2026), et non la table `discount`, qui n'est pas utilisée. Une réduction est une **option de plan** (groupe « charge »), par exemple `alce` « -5% Réduction AMCOM ». Elle porte un frais à **tarif négatif** (article 003141, −212 XPF). L'abonnement la souscrit comme une option (`planscheduleoption`). Mesure (`sql/charging_options.sql`) : **122 options de réduction** au catalogue, dont 93 expirées. **7 217 abonnements à reprendre** en ont au moins une, et **5 653 souscriptions portent sur une option expirée** : sont-elles encore facturées ? Le montant réel dépend du plan (tarif de plan), pas seulement de l'article.
 - **Premières anomalies à corriger dans Smile** :
-  - 122 doublons de N° Conso+ (`loyalty_card` unique) ;
-  - 69 e-mails invalides ;
-  - environ 850 téléphones à 12 chiffres ;
-  - 83 abonnements actifs sur un plan `inactive` ou `closed`.
+  - 50 doublons de N° Conso+ (`loyalty_card` unique) ;
+  - 2 e-mails invalides ;
+  - 368 téléphones à 12 chiffres ;
+  - 2 165 RIDET au mauvais format (sur 2 828) ;
+  - 92 comptes en contentieux avec abonnement actif.
+  - 68 abonnements actifs sur le plan `inactive`.
 
 ---
 
@@ -146,8 +153,8 @@ Elles ne produisent pas de code mais elles conditionnent les unités techniques 
 | ID | Action | Débloque | Porteur |
 |---|---|---|---|
 | M1 | Inventaire exhaustif des bases, instances et outils où vivent les données (cas limites 1, 24), volumes attendus (25), encodage et formats (26). **Fait le 27/10** : une seule base, `lagoon.nc`, et inventaire dans `sql/inventaire.sql`. Reste la confirmation de l'admin pour DB1 et DB2 | U2, toutes les extractions | Lagoon |
-| M2 | Compléter les colonnes jaunes des onglets 1 et 1b ; trancher les catégories de rapport de vente ↔ comptes 7XXX (cas 21) et l'organisation Lagoon / Lagoon Business | U4 | Lagoon |
-| M3 | Compléter l'onglet 2 ; trancher les cas 2 à 7, 22, 23 (clients sans réf., doublons d'identifiants, changement de type, clients inactifs, adresses multiples, payeur ≠ titulaire, statuts contentieux, soldes à la bascule) ; décrire « accès limité », mobiles multiples, client Chorus. **En cours** : brouillon dans `docs/correspondance/2-clients.md`. Restent à trancher le type d'adresse de facturation, le RIDET sans établissement, la source du contentieux et les 78 comptes « Compte Smile » | U5 | Lagoon |
+| M2 | Compléter les colonnes jaunes des onglets 1 et 1b ; trancher les catégories de rapport de vente ↔ comptes 7XXX (cas 21) | U4 | Lagoon |
+| M3 | Compléter l'onglet 2 ; trancher les cas 2 à 7, 22, 23 (clients sans réf., doublons d'identifiants, changement de type, clients inactifs, adresses multiples, payeur ≠ titulaire, statuts contentieux, soldes à la bascule) ; décrire « accès limité », mobiles multiples, client Chorus. **En cours** : brouillon dans `docs/correspondance/2-clients.md`. Restent à trancher le type d'adresse de facturation, le RIDET sans établissement, la date de contentieux à reprendre et les 65 « Compte Smile » ayant un abonnement actif | U5 | Lagoon |
 | M4 | Compléter les onglets 3 et 4 ; trancher les cas 8 à 12 (options partagées, variantes, ventilation multi-comptes, obsolètes, prix par type/zone) ; lister les frais fixes | U6, U7 | Lagoon |
 | M5 | Produire l'inventaire des réductions (cas 13, 14) : sources, nature, période restante | U8 | Lagoon |
 | M6 | Compléter les onglets 6, 6a, 6b ; trancher les cas 15 à 19 et 27 (en cours uniquement, suspendus/préavis, période partiellement facturée, propriétés dynamiques, multi-sites/payeurs, évolution des données avant bascule) | U9 | Lagoon |
@@ -361,7 +368,7 @@ Le rapport reprend le numéro de ligne du fichier généré et la référence Sm
 
 ### U8. Lot 5 — Réductions
 
-**Objectif :** mettre au format le fichier des réductions fourni par Lagoon (M5), qui n'existe pas dans les données actuelles. L'inventaire le confirme : les 4 réductions Smile ne sont rattachées à aucun compte ni abonnement. Restent à examiner les 61 frais récurrents hors plan.
+**Objectif :** mettre au format le fichier des réductions fourni par Lagoon (M5), qui n'existe pas dans les données actuelles. Dans Smile, les réductions sont des « charging options » : des options de plan dont le frais a un tarif négatif, souscrites par l'abonnement. Le tarif peut être surchargé par abonnement (`psiplanautocharge`), et il existe aussi des frais négatifs ajoutés directement (`userautocharge`). La table `discount` n'est pas utilisée. Les options expirées, mais encore souscrites, sont à traiter (cas 14). Le fichier du lot 5 sera donc **extrait de Smile**. Il reste à décider s'il porte des réductions So'Bloo ou des prix négociés sur les lignes d'abonnement (`estimate_line.price_value` / `discount_*`, onglet 6 n° 10 à 12).
 **Exigences :** R1, R5
 **Dépendances :** U7, M5
 **Fichiers :**
@@ -395,7 +402,7 @@ Le rapport reprend le numéro de ligne du fichier généré et la référence Sm
 
 **Approche :**
 - Périmètre « en cours » (cas 15, 16).
-- Clé de rapprochement : **`usn` de l'abonnement Smile** (unique, jamais vide). Les contrats d'abonnement Smile ne sont pas utilisés (0 en cours), donc pas d'ID de contrat. Le modèle Sobloo doit porter cette clé (`subscription_contract.ref` ou équivalent, n° 25). `estimate.contract_number` n'est jamais utilisé (n° 1).
+- Clé de rapprochement : **`usn` de l'abonnement Smile** (décision Lagoon du 27/10/2026). Il est unique et jamais vide ; les contrats d'abonnement Smile ne sont pas utilisés. Le modèle Sobloo doit porter cette clé (`subscription_contract.ref` ou équivalent, n° 25). `estimate.contract_number` n'est jamais utilisé (n° 1).
 - Population : abonnements Active ou Suspended, hors Self Care (CAT), soit environ 50 400. Plan en cours = ligne du plan de facturation de type 1 sans successeur passé.
 - État : un plan de cycle de vie `locked` ou `freesusp` donne Suspendu (cas 16, à valider). `inactive` ou `closed` sur un abonnement actif est une anomalie à corriger dans Smile.
 - Le client existe dans le lot 2 (n° 2) et chaque article dans le lot 4 (n° 6). Chaque option est rattachée à son article (n° 7).
@@ -488,11 +495,11 @@ data/           (ignoré) extractions horodatées, fichiers d'import, rapports
 ## Questions ouvertes
 
 **À trancher avant de commencer**
-- Ouverture de l'accès direct à `lagoon.nc` (`pg_hba.conf` et compte en lecture seule), demandée à l'admin le 27/10. Sans elle, U2 reste manuel, via pgAdmin.
+- Compte dédié en lecture seule : l'accès direct fonctionne avec le compte nominatif, sur une réplique. Un compte dédié reste demandé à l'admin.
 - Confirmation que DB1 et DB2 sont arrêtés et que toutes leurs données sont dans `lagoon.nc` (cas 1).
-- Le modèle Sobloo du lot 6 peut-il porter l'`usn` de l'abonnement comme clé de rapprochement ?
+- Le modèle Sobloo du lot 6 doit porter l'`usn` de l'abonnement comme clé de rapprochement (clé décidée le 27/10/2026) : sur quel champ ?
+- Modèle du catalogue (lots 1b, 3 et 4), proposé par Lagoon : **1 service Smile = 1 famille d'articles So'Bloo, 1 plan Smile = 1 article**. Les charging options restent des options rattachées à l'article. À valider avec Sobloo.
 - Import clients sans écraser le RIB et le mandat SEPA déjà présents dans So'Bloo : comportement à confirmer par Sobloo.
-- Organisation(s) Lagoon / Lagoon Business : une seule ou deux ? Cela détermine l'organisation des comptes, des profils et des abonnements.
 
 **Reportées à la réalisation**
 - Colonnes exactes des modèles d'import : elles seront fournies par Sobloo, lot par lot.
