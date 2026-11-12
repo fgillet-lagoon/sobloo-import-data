@@ -96,6 +96,10 @@ Critères de sortie d'un lot :
 - liens articles ↔ options, ventilation comptable, abonnements (client, articles, réductions, échéance, montant, propriétés) corrects ;
 - **rejeu d'un import déjà passé sans doublon**.
 
+## Focus actuel (13/11/2026)
+
+Clients et abonnements (lots 2 et 6) mis de côté : on traite le catalogue (lots 1, 1b, 3, 4, 5). Arbitrages à jour dans `docs/arbitrages-catalogue.md`.
+
 ## Points ouverts (au 12/10/2026)
 
 | Point | Porteur |
