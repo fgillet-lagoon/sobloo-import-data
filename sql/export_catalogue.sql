@@ -16,26 +16,26 @@
 \pset footer off
 
 -- Familles (services Smile) exclues par Lagoon le 13/11/2026 : ni famille, ni article, ni option, ni réduction
-\set familles_exclues '10, 233, 35, 501, 25, 49, 17, 40'
+\set familles_exclues '10, 233, 35, 501, 25, 49, 17, 40, 29'
 -- Tout élément mentionnant VoD, Go TV ou Analogique (code, libellé, famille) exclu par Lagoon le 13/11/2026
 \set exclusion_texte 'vod|go ?tv|analogique'
 
 -- 1. Comptes de reporting (onglet 1 : code = glcode, compte général Sage)
 \o data/catalogue/1_comptes.csv
 select t.glcode as "code compte", t.name as "libellé", t.txcode as "code Smile", t.validfrom as "valide du", t.validto as "valide au",
-       (t.validto is null or t.validto >= current_date) as "actif",
        count(i.itemcode) as "articles Smile rattachés"
 from public.txdescription t
 left join public.itemdescription i on i.txcode = t.txcode and i.company = t.company
 where (coalesce(t.glcode, '') || ' ' || coalesce(t.name, '') || ' ' || t.txcode) !~* :'exclusion_texte'
+  and (t.validto is null or t.validto >= current_date)  -- comptes actifs seulement (Lagoon, 13/11/2026)
+  and lower(t.txcode) not in ('imp41', 'transfer')  -- report à nouveau et virements, exclus par Lagoon le 13/11/2026
 group by t.txdescription, t.glcode, t.name, t.txcode, t.validfrom, t.validto
 order by 1, 3;
 
 -- 2. Taxes (onglet 1b n° 8) : taux en vigueur, barème 1
 \o data/catalogue/2_taxes.csv
-select distinct on (tt.tax_treatment) tt.tax_treatment as "id Smile", tt.name as "taxe", tt.taxable as "taxable",
-       s.tax_item_code as "code", s.percentage_rate as "taux %", s.start_date as "depuis",
-       (tt.last_available_date is null) as "active"
+select distinct on (tt.tax_treatment) tt.tax_treatment as "id Smile", tt.name as "taxe",
+       s.percentage_rate as "taux %", s.start_date as "depuis"
 from smile03.tax_treatment tt
 left join smile03.tax_schedule_item s on s.tax_treatment = tt.tax_treatment and s.tax_schedule = 1 and s.start_date <= current_date
 where tt.tax_treatment not in (1, 2)  -- Tax Free et Taxable (ancien régime) exclus par Lagoon le 13/11/2026
@@ -101,31 +101,14 @@ order by 2;
 
 -- 4. Articles (onglet 4) : invoice items Smile = articles ponctuels (itemdescription de type 6), actifs.
 --    Pas de famille dans Smile pour ces articles. Les plans sont exportés à part (fichier 6).
+\set reduction_one_shot false
 \o data/catalogue/4_articles.csv
-with codes_abonnements as (  -- espace de codes commun (variant.code unique sans casse)
-    select lower(plan) as c from public.plan
-    union
-    select lower(option) from public.planoption
-),
-taux as (
-    select distinct on (tax_treatment) tax_treatment, percentage_rate
-    from smile03.tax_schedule_item where tax_schedule = 1 and start_date <= current_date
-    order by tax_treatment, start_date desc
-)
-select i.itemcode as "code Smile", i.name as "désignation", i.rate as "prix HT", i.currency as "devise",
-       i.validfrom as "valide du", i.validto as "valide au",
-       t.glcode as "compte de vente", t.name as "libellé compte", i.txcode as "code compte Smile",
-       tt.name as "taxe", tx.percentage_rate as "taux taxe %", (i.taxtreatment in (1, 2)) as "taxe exclue (Tax Free / Taxable)",
-       (i.rate < 0) as "prix négatif", (c.c is not null) as "code partagé avec un plan ou une option"
-from public.itemdescription i
-left join public.txdescription t on t.txcode = i.txcode and t.company = i.company
-left join smile03.tax_treatment tt on tt.tax_treatment = i.taxtreatment
-left join taux tx on tx.tax_treatment = i.taxtreatment
-left join codes_abonnements c on c.c = lower(i.itemcode)
-where i.chargetype = 6
-  and (i.validto is null or i.validto >= current_date)
-  and (i.itemcode || ' ' || coalesce(i.name, '') || ' ' || coalesce(t.glcode, '') || ' ' || coalesce(t.name, '')) !~* :'exclusion_texte'
-order by t.glcode, i.itemcode;
+\ir export_catalogue_articles.sql
+
+-- 5b. Réductions ponctuelles : invoice items à prix négatif (parrainages). Les réductions récurrentes sont dans 5_reductions.
+\set reduction_one_shot true
+\o data/catalogue/5b_reductions_one_shot.csv
+\ir export_catalogue_articles.sql
 
 -- 6. Abonnements (onglet 6) : une ligne par plan (offre d'abonnement) du périmètre, rattaché à son service (famille).
 --    Prix = frais récurrent le plus récent (Lagoon 13/11/2026 : pas de ligne par prix).
@@ -186,26 +169,16 @@ taux as (
     select distinct on (tax_treatment) tax_treatment, percentage_rate
     from smile03.tax_schedule_item where tax_schedule = 1 and start_date <= current_date
     order by tax_treatment, start_date desc
-),
-codes as (  -- O4 : espace de codes commun aux articles et aux options (variant.code unique sans casse)
-    select lower(plan) as c from perimetre
-    union all
-    select lower(po.option) from public.planoption po join perimetre pe on pe.plan = po.plan
-),
-doublons as (select c from codes group by c having count(*) > 1)
-select pe.plan as "code Smile", pe.plan as "code proposé (variant.code)",  -- O4 : l'article garde son code, c'est l'option qui est préfixée
-       (d.c is not null) as "code partagé avec une option",
-       pe.name as "désignation", sv.service as "id famille", sv.name as "famille (service)", pe.userdescription as "description client", pe.admindescription as "description interne",
-       pe.nb_abonnements as "abonnements à reprendre", pe.en_vente as "en vente", pe.validfrom as "en vente du", pe.validto as "en vente au",
-       pe.is_suspension_plan as "plan de suspension",
-       f.en_cours as "frais en cours", f.itemcode as "code frais Smile", i.name as "libellé frais",
+)
+select pe.plan as "code Smile", pe.name as "désignation", sv.service as "id famille", sv.name as "famille (service)", pe.userdescription as "description client", pe.admindescription as "description interne",
+       pe.nb_abonnements as "abonnements à reprendre", pe.validfrom as "en vente du", pe.validto as "en vente au",
+       f.itemcode as "code frais Smile", i.name as "libellé frais",
        i.rate as "prix HT", i.currency as "devise", f.frequence as "fréquence", f.frequencyunits as "multiple", f.mode as "mode de facturation",
        t.glcode as "compte de vente", t.name as "libellé compte", tt.name as "taxe", tx.percentage_rate as "taux taxe %",
        cat.chemin as "catégorie rapport des ventes",
        nullif(pe.setupchargecode, '') as "code frais mise en service", ims.rate as "prix HT mise en service"
 from perimetre pe
 join smile03.service sv on sv.service = pe.service
-left join doublons d on d.c = lower(pe.plan)
 left join frais f on f.plan = pe.plan
 left join public.itemdescription i on i.itemcode = f.itemcode and i.company = pe.company
 left join public.txdescription t on t.txcode = i.txcode and t.company = i.company

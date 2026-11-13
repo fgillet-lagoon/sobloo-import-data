@@ -29,8 +29,8 @@ proprietes as (
 )
 select :famille as "id famille", p.code as "propriété (code Smile)", p.libelle as "libellé Smile", p.type as "type",
        p.renseignes as "abonnements renseignés", t.n as "abonnements à reprendre",
-       round(100.0 * p.renseignes / nullif(t.n, 0), 1) as "taux %",
-       p.code in ('contact', 'billingAddress', 'streetAddress', 'creationDate', 'creatingOperator', 'objectName') as "métadonnée Smile"
+       round(100.0 * p.renseignes / nullif(t.n, 0), 1) as "taux %"
 from proprietes p cross join total t
 where p.renseignes > 0
-order by 8, 5 desc, 2;
+  and p.code not in ('contact', 'billingAddress', 'streetAddress', 'creationDate', 'creatingOperator', 'objectName')  -- métadonnées Smile, exclues par Lagoon le 13/11/2026
+order by 5 desc, 2;
