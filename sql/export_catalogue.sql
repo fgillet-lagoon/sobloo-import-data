@@ -1,4 +1,4 @@
--- Export brut du catalogue Smile (lots 1, 1b, 3, 4, 5), selon les décisions Lagoon du 13/11/2026 (docs/arbitrages-catalogue.md).
+-- Export brut du catalogue Smile (lots 1, 1b, 3, 4, 5, et offres d'abonnement 6, 6a, 6b), selon les décisions Lagoon du 13/11/2026 (docs/arbitrages-catalogue.md).
 -- Pas de donnée client : codes, libellés, prix et comptages. Sortie dans data/catalogue/ (ignoré par git).
 -- Usage : psql -X -f sql/export_catalogue.sql   (depuis la racine, PGOPTIONS en lecture seule + statement_timeout)
 --
@@ -99,9 +99,38 @@ left join taxe_dominante td on td.service = sv.service
 group by sv.service, sv.name, sv.description, cd.glcode, td.taxe
 order by 2;
 
--- 4. Articles (onglet 4) : une ligne par plan du périmètre. Prix = frais récurrent le plus récent (Lagoon 13/11/2026 : pas de ligne par prix).
---    Smile crée un nouveau frais à chaque changement de tarif : on garde celui en cours, sinon le dernier commencé.
+-- 4. Articles (onglet 4) : invoice items Smile = articles ponctuels (itemdescription de type 6), actifs.
+--    Pas de famille dans Smile pour ces articles. Les plans sont exportés à part (fichier 6).
 \o data/catalogue/4_articles.csv
+with codes_abonnements as (  -- espace de codes commun (variant.code unique sans casse)
+    select lower(plan) as c from public.plan
+    union
+    select lower(option) from public.planoption
+),
+taux as (
+    select distinct on (tax_treatment) tax_treatment, percentage_rate
+    from smile03.tax_schedule_item where tax_schedule = 1 and start_date <= current_date
+    order by tax_treatment, start_date desc
+)
+select i.itemcode as "code Smile", i.name as "désignation", i.rate as "prix HT", i.currency as "devise",
+       i.validfrom as "valide du", i.validto as "valide au",
+       t.glcode as "compte de vente", t.name as "libellé compte", i.txcode as "code compte Smile",
+       tt.name as "taxe", tx.percentage_rate as "taux taxe %", (i.taxtreatment in (1, 2)) as "taxe exclue (Tax Free / Taxable)",
+       (i.rate < 0) as "prix négatif", (c.c is not null) as "code partagé avec un plan ou une option"
+from public.itemdescription i
+left join public.txdescription t on t.txcode = i.txcode and t.company = i.company
+left join smile03.tax_treatment tt on tt.tax_treatment = i.taxtreatment
+left join taux tx on tx.tax_treatment = i.taxtreatment
+left join codes_abonnements c on c.c = lower(i.itemcode)
+where i.chargetype = 6
+  and (i.validto is null or i.validto >= current_date)
+  and (i.itemcode || ' ' || coalesce(i.name, '') || ' ' || coalesce(t.glcode, '') || ' ' || coalesce(t.name, '')) !~* :'exclusion_texte'
+order by t.glcode, i.itemcode;
+
+-- 6. Abonnements (onglet 6) : une ligne par plan (offre d'abonnement) du périmètre, rattaché à son service (famille).
+--    Prix = frais récurrent le plus récent (Lagoon 13/11/2026 : pas de ligne par prix).
+--    Smile crée un nouveau frais à chaque changement de tarif : on garde celui en cours, sinon le dernier commencé.
+\o data/catalogue/6_abonnements.csv
 with recursive arbre as (
     select salesreportitem, parentitem, itemdescription, name::text as chemin
     from reports.salesreportitem where salesreport = 247 and parentitem is null
@@ -193,5 +222,13 @@ order by sv.name, pe.plan;
 \set nature '5-réduction'
 \o data/catalogue/5_reductions.csv
 \ir export_catalogue_options.sql
+
+-- 6a / 6b. Propriétés des abonnements Internet et VOIP (onglets 6a, 6b) : taux de remplissage uniquement, aucune valeur
+\set famille 47
+\o data/catalogue/6a_abo_internet.csv
+\ir export_catalogue_proprietes.sql
+\set famille 50
+\o data/catalogue/6b_abo_voip.csv
+\ir export_catalogue_proprietes.sql
 
 \o
